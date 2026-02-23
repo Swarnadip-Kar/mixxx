@@ -473,6 +473,7 @@ void DlgTrackInfo::updateSpinBpmFromBeats() {
 void DlgTrackInfo::reloadTrackBeats(const Track& track) {
     m_pBeatsClone = track.getBeats();
     updateSpinBpmFromBeats();
+    updateBpmScaleButtonLabels();
     m_trackHasBeatMap = m_pBeatsClone && !m_pBeatsClone->hasConstantTempo();
     bpmConst->setChecked(!m_trackHasBeatMap);
     bpmConst->setEnabled(m_trackHasBeatMap); // We cannot turn a BeatGrid to a BeatMap
@@ -684,12 +685,44 @@ void DlgTrackInfo::slotBpmScale(mixxx::Beats::BpmScale bpmScale) {
     if (scaledBeats) {
         m_pBeatsClone = *scaledBeats;
         updateSpinBpmFromBeats();
+        updateBpmScaleButtonLabels();
     }
+}
+
+void DlgTrackInfo::updateBpmScaleButtonLabels() {
+    // Get current BPM from the spinbox
+    const double bpm = spinBpm->value();
+
+    auto formatLabel = [bpm](const QString& baseLabel, double scale) -> QString {
+        if (bpm > 0) {
+            const double scaledBpm = bpm * scale;
+            QString scaledBpmStr = QString::number(scaledBpm, 'f', 2);
+            // Remove trailing zeros and dot for clean display
+            while (scaledBpmStr.endsWith('0')) {
+                scaledBpmStr.chop(1);
+            }
+            if (scaledBpmStr.endsWith('.')) {
+                scaledBpmStr.chop(1);
+            }
+            return QStringLiteral("%1 | %2 BPM").arg(baseLabel, scaledBpmStr);
+        }
+        return baseLabel;
+    };
+
+    bpmHalve->setText(formatLabel(tr("1/2 BPM"), 0.5));
+    bpmTwoThirds->setText(formatLabel(tr("2/3 BPM"), 2.0 / 3.0));
+    bpmThreeFourths->setText(formatLabel(tr("3/4 BPM"), 3.0 / 4.0));
+    bpmFourFifths->setText(formatLabel(tr("4/5 BPM"), 4.0 / 5.0));
+    bpmFiveFourths->setText(formatLabel(tr("5/4 BPM"), 5.0 / 4.0));
+    bpmFourThirds->setText(formatLabel(tr("4/3 BPM"), 4.0 / 3.0));
+    bpmThreeHalves->setText(formatLabel(tr("3/2 BPM"), 3.0 / 2.0));
+    bpmDouble->setText(formatLabel(tr("2x BPM"), 2.0));
 }
 
 void DlgTrackInfo::slotBpmClear() {
     m_pBeatsClone.reset();
     updateSpinBpmFromBeats();
+    updateBpmScaleButtonLabels();
 
     bpmConst->setChecked(true);
     bpmConst->setEnabled(m_trackHasBeatMap);
@@ -759,6 +792,7 @@ void DlgTrackInfo::slotSpinBpmValueChanged(double value) {
     }
 
     updateSpinBpmFromBeats();
+    updateBpmScaleButtonLabels();
 }
 
 void DlgTrackInfo::updateKeyText() {
