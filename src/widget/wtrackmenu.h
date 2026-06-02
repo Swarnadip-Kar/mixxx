@@ -251,6 +251,7 @@ class WTrackMenu : public QMenu {
     void clearBeats();
     void lockBpm(bool lock);
 
+    // CMRT - TEST
     // Temporary: To check Database integration
     void slotTestFingerprintDAO();
 
@@ -368,6 +369,7 @@ class WTrackMenu : public QMenu {
     parented_ptr<QAction> m_pReanalyzeConstBpmAction;
     parented_ptr<QAction> m_pReanalyzeVarBpmAction;
 
+    // CMRT - TEST
     // Test fingerprint DAO action
     parented_ptr<QAction> m_pTestFingerprintAction;
 

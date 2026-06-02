@@ -23,7 +23,7 @@ enum AnalyzerModeFlags {
     WithWaveform = 0x02,
     LowPriority = 0x04,
     WithFingerprint = 0x08,
-    All = WithBeats | WithWaveform,
+    All = WithBeats | WithWaveform | WithFingerprint,
 };
 
 enum class AnalyzerThreadState {
