@@ -251,6 +251,12 @@ class WTrackMenu : public QMenu {
     void clearBeats();
     void lockBpm(bool lock);
 
+    // Temporary: To check Database integration
+    void slotTestFingerprintDAO();
+
+    // Temporary: To check Analyzerfingerprint integration
+    void slotTestAnalyzerChromaprint();
+
 #ifdef __STEM__
     void loadSelectionToGroup(const QString& group,
             mixxx::StemChannelSelection stemMask = mixxx::StemChannelSelection(),
@@ -361,6 +367,12 @@ class WTrackMenu : public QMenu {
     parented_ptr<QAction> m_pReanalyzeAction;
     parented_ptr<QAction> m_pReanalyzeConstBpmAction;
     parented_ptr<QAction> m_pReanalyzeVarBpmAction;
+
+    // Test fingerprint DAO action
+    parented_ptr<QAction> m_pTestFingerprintAction;
+
+    // Test AnalyzerChromaprint action
+    parented_ptr<QAction> m_pTestAnalyzerAction;
 
     // Clear track metadata actions
     parented_ptr<QAction> m_pClearBeatsAction;
