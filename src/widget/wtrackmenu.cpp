@@ -8,6 +8,7 @@
 #include <QModelIndex>
 #include <QVBoxLayout>
 
+#include "analyzer/analyzerchromaprint.h"
 #include "analyzer/analyzerscheduledtrack.h"
 #include "analyzer/analyzersilence.h"
 #include "analyzer/analyzertrack.h"
@@ -596,10 +597,29 @@ void WTrackMenu::createActions() {
                 this,
                 &WTrackMenu::slotColorPicked);
     }
+
+    // Temporary: CMRT-TEST
+    m_pTestFingerprintAction = make_parented<QAction>(
+            tr("[CMRT-TEST] Run DAO Tests"), this);
+    connect(m_pTestFingerprintAction,
+            &QAction::triggered,
+            this,
+            &WTrackMenu::slotTestFingerprintDAO);
+
+    m_pTestAnalyzerAction = make_parented<QAction>(
+            tr("[CMRT-TEST] Run Analyzer Tests"), this);
+    connect(m_pTestAnalyzerAction,
+            &QAction::triggered,
+            this,
+            &WTrackMenu::slotTestAnalyzerChromaprint);
 }
 
 void WTrackMenu::setupActions() {
     addSeparator();
+    // Temporary: CMRT-TEST
+    addAction(m_pTestFingerprintAction);
+    addAction(m_pTestAnalyzerAction);
+
     if (featureIsEnabled(Feature::SearchRelated)) {
         addMenu(m_pSearchRelatedMenu);
     }
@@ -3033,4 +3053,981 @@ bool WTrackMenu::featureIsEnabled(Feature flag) const {
         DEBUG_ASSERT(!"unreachable");
         return false;
     }
+}
+
+// Temporary: CMRT-TEST
+void WTrackMenu::slotTestFingerprintDAO() {
+    qDebug() << "[CMRT-TEST] ============================================";
+    qDebug() << "[CMRT-TEST] TrackFingerprintDao — Full Test Suite START";
+    qDebug() << "[CMRT-TEST] ============================================";
+
+    // -----------------------------------------------------------------------
+    // Prerequisite: need a valid TrackId to use as foreign key anchor
+    // -----------------------------------------------------------------------
+    const TrackIdList trackIds = getTrackIds();
+    if (trackIds.isEmpty()) {
+        qDebug() << "[CMRT-TEST] ABORT: No track selected."
+                    " Right-click a track first.";
+        return;
+    }
+    const TrackId trackId = trackIds.first();
+    qDebug() << "[CMRT-TEST] Using trackId:" << trackId;
+
+    TrackFingerprintDao& dao = m_pLibrary->trackCollectionManager()
+                                       ->internalCollection()
+                                       ->getTrackFingerprintDAO();
+
+    int passed = 0;
+    int failed = 0;
+
+// Tiny helpers so tests stay readable
+#define CMRT_PASS(msg)                            \
+    do {                                          \
+        qDebug() << "[CMRT-TEST] PASS:" << (msg); \
+        ++passed;                                 \
+    } while (0)
+#define CMRT_FAIL(msg)                            \
+    do {                                          \
+        qDebug() << "[CMRT-TEST] FAIL:" << (msg); \
+        ++failed;                                 \
+    } while (0)
+#define CMRT_CHECK(cond, msg) \
+    do {                      \
+        if (cond) {           \
+            CMRT_PASS(msg);   \
+        } else {              \
+            CMRT_FAIL(msg);   \
+        }                     \
+    } while (0)
+
+    // =======================================================================
+    // SECTION 1 — fingerprint_metadata CRUD
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION 1: fingerprint_metadata CRUD ---";
+
+    // 1a. Clean slate — delete any leftover row for this track
+    dao.deleteFingerprintMetadata(trackId);
+
+    // 1b. INSERT (save with analysisId == -1 triggers INSERT path)
+    FingerprintMetadata meta;
+    meta.trackId = trackId;
+    meta.fingerprintHash = 0xDEADBEEF;
+    meta.chromaSha256 = QStringLiteral(
+            "aabbccdd1122334400000000000000000000000000000000000000001234abcd");
+    meta.fingerprintDuration = 210.5;
+    meta.fingerprintVersion = 1;
+    meta.cmrtGroupId = -1; // NULL — not yet grouped
+    meta.cmrtOffsetSeconds = 0.0;
+    meta.isCanonical = false;
+    meta.fingerprintValid = true;
+    meta.fingerprintNeedsRegen = false;
+    meta.computedAt = QDateTime::currentDateTimeUtc();
+
+    bool saveOk = dao.saveFingerprintMetadata(meta);
+    CMRT_CHECK(saveOk, "saveFingerprintMetadata INSERT");
+
+    // 1c. READ back
+    auto loaded = dao.getFingerprintMetadata(trackId);
+    CMRT_CHECK(loaded != nullptr, "getFingerprintMetadata returns non-null");
+    if (loaded) {
+        CMRT_CHECK(loaded->fingerprintHash == 0xDEADBEEF,
+                "getFingerprintMetadata: fingerprintHash matches");
+        CMRT_CHECK(loaded->chromaSha256 == meta.chromaSha256,
+                "getFingerprintMetadata: chromaSha256 matches");
+        CMRT_CHECK(qAbs(loaded->fingerprintDuration - 210.5) < 0.001,
+                "getFingerprintMetadata: fingerprintDuration matches");
+        CMRT_CHECK(loaded->fingerprintValid == true,
+                "getFingerprintMetadata: fingerprintValid matches");
+        CMRT_CHECK(loaded->cmrtGroupId == -1,
+                "getFingerprintMetadata: cmrtGroupId is -1 (NULL)");
+        qDebug() << "[CMRT-TEST]   sha256 read back:" << loaded->chromaSha256;
+    }
+
+    // 1d. UPDATE (save again with same trackId triggers UPDATE path)
+    meta.fingerprintHash = 0xCAFEBABE;
+    meta.fingerprintDuration = 195.0;
+    bool updateOk = dao.saveFingerprintMetadata(meta);
+    CMRT_CHECK(updateOk, "saveFingerprintMetadata UPDATE");
+
+    auto updated = dao.getFingerprintMetadata(trackId);
+    CMRT_CHECK(updated != nullptr, "getFingerprintMetadata after UPDATE returns non-null");
+    if (updated) {
+        CMRT_CHECK(updated->fingerprintHash == 0xCAFEBABE,
+                "getFingerprintMetadata: updated fingerprintHash matches");
+        CMRT_CHECK(qAbs(updated->fingerprintDuration - 195.0) < 0.001,
+                "getFingerprintMetadata: updated fingerprintDuration matches");
+    }
+
+    // 1e. markFingerprintNeedsRegen
+    bool regenOk = dao.markFingerprintNeedsRegen(trackId);
+    CMRT_CHECK(regenOk, "markFingerprintNeedsRegen returns true");
+
+    auto afterRegen = dao.getFingerprintMetadata(trackId);
+    CMRT_CHECK(afterRegen != nullptr, "getFingerprintMetadata after markNeedsRegen non-null");
+    if (afterRegen) {
+        CMRT_CHECK(afterRegen->fingerprintNeedsRegen == true,
+                "markFingerprintNeedsRegen: fingerprintNeedsRegen == true");
+        CMRT_CHECK(afterRegen->fingerprintValid == false,
+                "markFingerprintNeedsRegen: fingerprintValid == false");
+    }
+
+    // 1f. markFingerprintNeedsRegen on invalid TrackId should fail gracefully
+    bool regenInvalid = dao.markFingerprintNeedsRegen(TrackId());
+    CMRT_CHECK(regenInvalid == false,
+            "markFingerprintNeedsRegen: invalid TrackId returns false");
+
+    // 1g. getFingerprintMetadata for non-existent track returns nullptr
+    TrackId fakeId(QVariant(999999));
+    auto missingMeta = dao.getFingerprintMetadata(fakeId);
+    CMRT_CHECK(missingMeta == nullptr,
+            "getFingerprintMetadata: non-existent track returns nullptr");
+
+    // =======================================================================
+    // SECTION 2 — cmrt_groups CRUD
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION 2: cmrt_groups CRUD ---";
+
+    CmrtGroup group;
+    group.fingerprintHash = 0xCAFEBABE;
+    group.chromaSha256 = QStringLiteral(
+            "aabbccdd1122334400000000000000000000000000000000000000001234abcd");
+    group.canonicalTrackId = trackId;
+    group.trackCount = 1;
+    group.createdAt = QDateTime::currentDateTimeUtc();
+    // lastUpdated intentionally left invalid → stored as NULL
+
+    int groupId = dao.createCmrtGroup(group);
+    CMRT_CHECK(groupId > 0, "createCmrtGroup returns valid groupId");
+    qDebug() << "[CMRT-TEST]   created groupId:" << groupId;
+
+    // READ back the group
+    auto loadedGroup = dao.getCmrtGroup(groupId);
+    CMRT_CHECK(loadedGroup != nullptr, "getCmrtGroup returns non-null");
+    if (loadedGroup) {
+        CMRT_CHECK(loadedGroup->fingerprintHash == 0xCAFEBABE,
+                "getCmrtGroup: fingerprintHash matches");
+        CMRT_CHECK(loadedGroup->chromaSha256 == group.chromaSha256,
+                "getCmrtGroup: chromaSha256 matches");
+        CMRT_CHECK(loadedGroup->trackCount == 1,
+                "getCmrtGroup: trackCount == 1");
+        CMRT_CHECK(!loadedGroup->musicbrainzSynced,
+                "getCmrtGroup: musicbrainzSynced defaults to false");
+        qDebug() << "[CMRT-TEST]   group sha256:" << loadedGroup->chromaSha256;
+    }
+
+    // getCmrtGroup for invalid id
+    auto missingGroup = dao.getCmrtGroup(-1);
+    CMRT_CHECK(missingGroup == nullptr,
+            "getCmrtGroup: invalid groupId returns nullptr");
+
+    auto missingGroup2 = dao.getCmrtGroup(999999);
+    CMRT_CHECK(missingGroup2 == nullptr,
+            "getCmrtGroup: non-existent groupId returns nullptr");
+
+    // =======================================================================
+    // SECTION 3 — updateCmrtGroupTrackCount
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION 3: updateCmrtGroupTrackCount ---";
+
+    bool incOk = dao.updateCmrtGroupTrackCount(groupId, +1);
+    CMRT_CHECK(incOk, "updateCmrtGroupTrackCount +1 returns true");
+
+    auto afterInc = dao.getCmrtGroup(groupId);
+    CMRT_CHECK(afterInc != nullptr, "getCmrtGroup after increment non-null");
+    if (afterInc) {
+        CMRT_CHECK(afterInc->trackCount == 2,
+                "updateCmrtGroupTrackCount: trackCount == 2 after +1");
+    }
+
+    bool decOk = dao.updateCmrtGroupTrackCount(groupId, -1);
+    CMRT_CHECK(decOk, "updateCmrtGroupTrackCount -1 returns true");
+
+    auto afterDec = dao.getCmrtGroup(groupId);
+    if (afterDec) {
+        CMRT_CHECK(afterDec->trackCount == 1,
+                "updateCmrtGroupTrackCount: trackCount == 1 after -1");
+    }
+
+    // delta == 0 should abort
+    bool zeroDelta = dao.updateCmrtGroupTrackCount(groupId, 0);
+    CMRT_CHECK(zeroDelta == false,
+            "updateCmrtGroupTrackCount: delta=0 returns false");
+
+    // =======================================================================
+    // SECTION 4 — cmrt_members CRUD
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION 4: cmrt_members CRUD ---";
+
+    CmrtMember member;
+    member.groupId = groupId;
+    member.trackId = trackId;
+    member.offsetFromCanonical = 0.0;
+    member.qualityScore = -1.0; // NULL sentinel
+    member.isFakeLossless = false;
+    member.addedAt = QDateTime::currentDateTimeUtc();
+    member.userQualityRating = -1; // NULL sentinel
+
+    bool addMemberOk = dao.addCmrtMember(member);
+    CMRT_CHECK(addMemberOk, "addCmrtMember returns true");
+
+    // READ members for group
+    QList<CmrtMember> members = dao.getCmrtMembersForGroup(groupId);
+    CMRT_CHECK(members.size() == 1, "getCmrtMembersForGroup: returns 1 member");
+    if (!members.isEmpty()) {
+        CMRT_CHECK(members.first().trackId == trackId,
+                "getCmrtMembersForGroup: member trackId matches");
+        CMRT_CHECK(members.first().qualityScore < 0.0,
+                "getCmrtMembersForGroup: qualityScore is NULL (-1.0)");
+        CMRT_CHECK(members.first().userQualityRating < 0,
+                "getCmrtMembersForGroup: userQualityRating is NULL (-1)");
+        qDebug() << "[CMRT-TEST]   memberId:" << members.first().memberId;
+    }
+
+    // getCmrtMembersForGroup for empty group
+    QList<CmrtMember> emptyMembers = dao.getCmrtMembersForGroup(999999);
+    CMRT_CHECK(emptyMembers.isEmpty(),
+            "getCmrtMembersForGroup: non-existent group returns empty list");
+
+    // addCmrtMember with invalid trackId
+    CmrtMember badMember;
+    badMember.groupId = groupId;
+    badMember.trackId = TrackId(); // invalid
+    badMember.addedAt = QDateTime::currentDateTimeUtc();
+    bool badAddOk = dao.addCmrtMember(badMember);
+    CMRT_CHECK(badAddOk == false,
+            "addCmrtMember: invalid trackId returns false");
+
+    // deleteCmrtMember
+    bool delMemberOk = dao.deleteCmrtMember(trackId);
+    CMRT_CHECK(delMemberOk, "deleteCmrtMember returns true");
+
+    QList<CmrtMember> afterDelete = dao.getCmrtMembersForGroup(groupId);
+    CMRT_CHECK(afterDelete.isEmpty(),
+            "getCmrtMembersForGroup: empty after deleteCmrtMember");
+
+    // deleteCmrtMember on invalid TrackId
+    bool delInvalid = dao.deleteCmrtMember(TrackId());
+    CMRT_CHECK(delInvalid == false,
+            "deleteCmrtMember: invalid TrackId returns false");
+
+    // =======================================================================
+    // SECTION 5 — .chroma file I/O
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION 5: .chroma file I/O ---";
+
+    // Build dummy binary fingerprint data (16 uint32 values = 64 bytes)
+    QByteArray chromaData;
+    chromaData.resize(16 * sizeof(quint32));
+    for (int i = 0; i < 16; ++i) {
+        quint32 val = static_cast<quint32>(0xABCD0000 + i);
+        memcpy(chromaData.data() + i * sizeof(quint32), &val, sizeof(quint32));
+    }
+    qDebug() << "[CMRT-TEST]   chroma test data size:" << chromaData.size() << "bytes";
+
+    // Save
+    bool saveChromaOk = dao.saveChromaFile(trackId, chromaData);
+    CMRT_CHECK(saveChromaOk, "saveChromaFile returns true");
+
+    // Load
+    QByteArray loadedChroma = dao.loadChromaFile(trackId);
+    CMRT_CHECK(!loadedChroma.isEmpty(), "loadChromaFile returns non-empty data");
+    CMRT_CHECK(loadedChroma == chromaData,
+            "loadChromaFile: data matches what was saved");
+    qDebug() << "[CMRT-TEST]   bytes loaded:" << loadedChroma.size();
+
+    // Overwrite (write-to-temp + rename path)
+    QByteArray chromaData2;
+    chromaData2.resize(8 * sizeof(quint32));
+    for (int i = 0; i < 8; ++i) {
+        quint32 val = static_cast<quint32>(0x11110000 + i);
+        memcpy(chromaData2.data() + i * sizeof(quint32), &val, sizeof(quint32));
+    }
+    bool overwriteOk = dao.saveChromaFile(trackId, chromaData2);
+    CMRT_CHECK(overwriteOk, "saveChromaFile overwrite returns true");
+
+    QByteArray loadedChroma2 = dao.loadChromaFile(trackId);
+    CMRT_CHECK(loadedChroma2 == chromaData2,
+            "loadChromaFile: overwritten data matches");
+
+    // Load for non-existent track returns empty
+    QByteArray missingChroma = dao.loadChromaFile(TrackId(QVariant(999999)));
+    CMRT_CHECK(missingChroma.isEmpty(),
+            "loadChromaFile: non-existent track returns empty");
+
+    // saveChromaFile with invalid trackId
+    bool saveBadId = dao.saveChromaFile(TrackId(), chromaData);
+    CMRT_CHECK(saveBadId == false,
+            "saveChromaFile: invalid trackId returns false");
+
+    // saveChromaFile with empty data
+    bool saveEmpty = dao.saveChromaFile(trackId, QByteArray());
+    CMRT_CHECK(saveEmpty == false,
+            "saveChromaFile: empty data returns false");
+
+    // Delete
+    bool delChromaOk = dao.deleteChromaFile(trackId);
+    CMRT_CHECK(delChromaOk, "deleteChromaFile returns true");
+
+    QByteArray afterDelChroma = dao.loadChromaFile(trackId);
+    CMRT_CHECK(afterDelChroma.isEmpty(),
+            "loadChromaFile: empty after deleteChromaFile");
+
+    // Double-delete is idempotent (file doesn't exist → still returns true)
+    bool delChromaAgain = dao.deleteChromaFile(trackId);
+    CMRT_CHECK(delChromaAgain == true,
+            "deleteChromaFile: idempotent on non-existent file");
+
+    // deleteChromaFile with invalid trackId
+    bool delChromaBad = dao.deleteChromaFile(TrackId());
+    CMRT_CHECK(delChromaBad == false,
+            "deleteChromaFile: invalid trackId returns false");
+
+    // =======================================================================
+    // SECTION 6 — acoustid_queue (enqueue / updateStatus / getPending / delete)
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION 6: acoustid_queue ---";
+
+    // Clean slate
+    dao.deleteQueueEntry(trackId);
+
+    // enqueueAcoustId
+    bool enqueueOk = dao.enqueueAcoustId(trackId, /*priority=*/3);
+    CMRT_CHECK(enqueueOk, "enqueueAcoustId returns true");
+
+    // Second enqueue of same track should be idempotent (INSERT OR IGNORE)
+    bool enqueueAgain = dao.enqueueAcoustId(trackId, /*priority=*/1);
+    CMRT_CHECK(enqueueAgain == true,
+            "enqueueAcoustId: re-enqueue same track returns true (idempotent)");
+
+    // getPendingJobs — should include our track
+    QList<AcoustIdJob> jobs = dao.getPendingJobs(/*limit=*/50);
+    bool foundJob = false;
+    int queueId = -1;
+    for (const auto& job : jobs) {
+        if (job.trackId == trackId) {
+            foundJob = true;
+            queueId = job.queueId;
+            qDebug() << "[CMRT-TEST]   found job queueId:" << queueId
+                     << "priority:" << job.priority
+                     << "status:" << job.status
+                     << "attempts:" << job.attempts;
+            break;
+        }
+    }
+    CMRT_CHECK(foundJob, "getPendingJobs: job for test track is in queue");
+    CMRT_CHECK(queueId > 0, "getPendingJobs: queueId > 0");
+
+    if (queueId > 0) {
+        // updateQueueStatus → processing
+        bool setProcessing = dao.updateQueueStatus(
+                queueId, QStringLiteral("processing"), QString());
+        CMRT_CHECK(setProcessing, "updateQueueStatus: set to 'processing'");
+
+        // updateQueueStatus → failed with error message
+        bool setFailed = dao.updateQueueStatus(queueId,
+                QStringLiteral("failed"),
+                QStringLiteral("HTTP 429 rate limit"));
+        CMRT_CHECK(setFailed, "updateQueueStatus: set to 'failed' with error");
+
+        // After failing, attempts should have incremented — re-fetch
+        QList<AcoustIdJob> jobsAfterFail = dao.getPendingJobs(/*limit=*/50);
+        // attempts < max_attempts (default 3), so job is still pending
+        bool foundAfterFail = false;
+        for (const auto& job : jobsAfterFail) {
+            if (job.trackId == trackId) {
+                foundAfterFail = true;
+                CMRT_CHECK(job.attempts >= 1,
+                        "getPendingJobs: attempts >= 1 after updateQueueStatus");
+                CMRT_CHECK(!job.errorMessage.isEmpty(),
+                        "getPendingJobs: errorMessage is set after failure");
+                break;
+            }
+        }
+        CMRT_CHECK(foundAfterFail,
+                "getPendingJobs: job still visible after fail (attempts < max)");
+
+        // updateQueueStatus → completed
+        bool setCompleted = dao.updateQueueStatus(queueId,
+                QStringLiteral("completed"),
+                QString());
+        CMRT_CHECK(setCompleted, "updateQueueStatus: set to 'completed'");
+
+        // Completed job should NOT appear in getPendingJobs
+        QList<AcoustIdJob> jobsAfterComplete = dao.getPendingJobs(/*limit=*/50);
+        bool foundAfterComplete = false;
+        for (const auto& job : jobsAfterComplete) {
+            if (job.trackId == trackId) {
+                foundAfterComplete = true;
+                break;
+            }
+        }
+        CMRT_CHECK(!foundAfterComplete,
+                "getPendingJobs: completed job not returned");
+    }
+
+    // updateQueueStatus with invalid queueId
+    bool badUpdate = dao.updateQueueStatus(-1, QStringLiteral("processing"), QString());
+    CMRT_CHECK(badUpdate == false,
+            "updateQueueStatus: invalid queueId returns false");
+
+    // deleteQueueEntry
+    bool delQueueOk = dao.deleteQueueEntry(trackId);
+    CMRT_CHECK(delQueueOk, "deleteQueueEntry returns true");
+
+    // deleteQueueEntry on invalid TrackId
+    bool delQueueBad = dao.deleteQueueEntry(TrackId());
+    CMRT_CHECK(delQueueBad == false,
+            "deleteQueueEntry: invalid TrackId returns false");
+
+    // enqueueAcoustId with invalid TrackId
+    bool enqueueBad = dao.enqueueAcoustId(TrackId(), 5);
+    CMRT_CHECK(enqueueBad == false,
+            "enqueueAcoustId: invalid TrackId returns false");
+
+    // =======================================================================
+    // SECTION 7 — acoustid_cache (cache / lookup / expiry / delete)
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION 7: acoustid_cache ---";
+
+    const QString testSha256 = QStringLiteral(
+            "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef12345678");
+
+    AcoustIdCacheEntry entry;
+    entry.chromaSha256 = testSha256;
+    entry.acoustidId = QStringLiteral("test-acoustid-uuid-0001");
+    entry.musicbrainzRecordingId = QStringLiteral("mb-rec-0001");
+    entry.musicbrainzReleaseId = QStringLiteral("mb-rel-0001");
+    entry.musicbrainzMetadata = QStringLiteral("{\"title\":\"Test Track\"}");
+    entry.confidence = 0.97;
+    entry.lookupTimestamp = QDateTime::currentDateTimeUtc();
+    entry.expiresAt = QDateTime(); // NULL — no expiry
+
+    // INSERT
+    bool cacheOk = dao.cacheAcoustIdResult(entry);
+    CMRT_CHECK(cacheOk, "cacheAcoustIdResult INSERT returns true");
+
+    // LOOKUP — should hit
+    auto hit = dao.lookupAcoustIdCache(testSha256);
+    CMRT_CHECK(hit != nullptr, "lookupAcoustIdCache: returns non-null on hit");
+    if (hit) {
+        CMRT_CHECK(hit->acoustidId == entry.acoustidId,
+                "lookupAcoustIdCache: acoustidId matches");
+        CMRT_CHECK(hit->musicbrainzRecordingId == entry.musicbrainzRecordingId,
+                "lookupAcoustIdCache: mb recording id matches");
+        CMRT_CHECK(qAbs(hit->confidence - 0.97) < 0.001,
+                "lookupAcoustIdCache: confidence matches");
+        CMRT_CHECK(!hit->expiresAt.isValid(),
+                "lookupAcoustIdCache: expiresAt is null (no TTL)");
+        qDebug() << "[CMRT-TEST]   acoustidId:" << hit->acoustidId
+                 << "confidence:" << hit->confidence;
+    }
+
+    // UPDATE (same sha256 — triggers UPDATE path)
+    entry.acoustidId = QStringLiteral("test-acoustid-uuid-0001-UPDATED");
+    entry.confidence = 0.85;
+    bool updateCache = dao.cacheAcoustIdResult(entry);
+    CMRT_CHECK(updateCache, "cacheAcoustIdResult UPDATE returns true");
+
+    auto hitUpdated = dao.lookupAcoustIdCache(testSha256);
+    if (hitUpdated) {
+        CMRT_CHECK(hitUpdated->acoustidId == QStringLiteral("test-acoustid-uuid-0001-UPDATED"),
+                "cacheAcoustIdResult: UPDATE propagated correctly");
+        CMRT_CHECK(qAbs(hitUpdated->confidence - 0.85) < 0.001,
+                "cacheAcoustIdResult UPDATE: confidence updated");
+    }
+
+    // LOOKUP — miss on unknown sha256
+    auto miss = dao.lookupAcoustIdCache(
+            QStringLiteral("0000000000000000000000000000000000000000000000000000000000000000"));
+    CMRT_CHECK(miss == nullptr, "lookupAcoustIdCache: unknown sha256 returns nullptr");
+
+    // EXPIRED entry — should not be returned
+    const QString expiredSha = QStringLiteral(
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee87654321");
+    AcoustIdCacheEntry expiredEntry;
+    expiredEntry.chromaSha256 = expiredSha;
+    expiredEntry.acoustidId = QStringLiteral("expired-acoustid-uuid");
+    expiredEntry.confidence = 0.5;
+    expiredEntry.lookupTimestamp = QDateTime::currentDateTimeUtc().addDays(-30);
+    expiredEntry.expiresAt = QDateTime::currentDateTimeUtc().addSecs(-1); // 1 second ago
+    dao.cacheAcoustIdResult(expiredEntry);
+
+    auto expiredHit = dao.lookupAcoustIdCache(expiredSha);
+    CMRT_CHECK(expiredHit == nullptr,
+            "lookupAcoustIdCache: expired entry returns nullptr");
+
+    // deleteExpiredCacheEntries
+    bool cleanOk = dao.deleteExpiredCacheEntries();
+    CMRT_CHECK(cleanOk, "deleteExpiredCacheEntries returns true");
+
+    // Verify expired row is gone
+    auto afterClean = dao.lookupAcoustIdCache(expiredSha);
+    CMRT_CHECK(afterClean == nullptr,
+            "lookupAcoustIdCache: expired entry absent after deleteExpiredCacheEntries");
+
+    // Valid entry should survive deleteExpiredCacheEntries
+    auto validStillHere = dao.lookupAcoustIdCache(testSha256);
+    CMRT_CHECK(validStillHere != nullptr,
+            "lookupAcoustIdCache: non-expired entry survives deleteExpiredCacheEntries");
+
+    // cacheAcoustIdResult with empty sha256
+    AcoustIdCacheEntry badEntry;
+    badEntry.chromaSha256 = QString();
+    badEntry.acoustidId = QStringLiteral("should-not-insert");
+    badEntry.lookupTimestamp = QDateTime::currentDateTimeUtc();
+    bool cacheBad = dao.cacheAcoustIdResult(badEntry);
+    CMRT_CHECK(cacheBad == false,
+            "cacheAcoustIdResult: empty sha256 returns false");
+
+    // =======================================================================
+    // SECTION 8 — deleteFingerprintMetadata (clean-up + edge cases)
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION 8: deleteFingerprintMetadata ---";
+
+    bool delMetaOk = dao.deleteFingerprintMetadata(trackId);
+    CMRT_CHECK(delMetaOk, "deleteFingerprintMetadata returns true");
+
+    auto afterDelMeta = dao.getFingerprintMetadata(trackId);
+    CMRT_CHECK(afterDelMeta == nullptr,
+            "getFingerprintMetadata: returns nullptr after delete");
+
+    // Delete on already-deleted row
+    bool delMetaAgain = dao.deleteFingerprintMetadata(trackId);
+    // numRowsAffected == 0 but query succeeded — method returns true
+    CMRT_CHECK(delMetaAgain == true,
+            "deleteFingerprintMetadata: idempotent (already deleted)");
+
+    // Delete with invalid TrackId
+    bool delMetaBad = dao.deleteFingerprintMetadata(TrackId());
+    CMRT_CHECK(delMetaBad == false,
+            "deleteFingerprintMetadata: invalid TrackId returns false");
+
+    // =======================================================================
+    // SUMMARY
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] ============================================";
+    qDebug() << "[CMRT-TEST] RESULTS: PASSED =" << passed
+             << "| FAILED =" << failed
+             << "| TOTAL =" << (passed + failed);
+    if (failed == 0) {
+        qDebug() << "[CMRT-TEST] ALL TESTS PASSED";
+    } else {
+        qDebug() << "[CMRT-TEST] *** SOME TESTS FAILED — grep [CMRT-TEST] FAIL ***";
+    }
+    qDebug() << "[CMRT-TEST] ============================================";
+
+#undef CMRT_PASS
+#undef CMRT_FAIL
+#undef CMRT_CHECK
+}
+
+void WTrackMenu::slotTestAnalyzerChromaprint() {
+    qDebug() << "[CMRT-TEST] ============================================";
+    qDebug() << "[CMRT-TEST] AnalyzerChromaprint — Integration Test START";
+    qDebug() << "[CMRT-TEST] ============================================";
+
+    // -----------------------------------------------------------------------
+    // Prerequisites
+    // -----------------------------------------------------------------------
+    TrackPointer pTrack = getFirstTrackPointer();
+    if (!pTrack) {
+        qDebug() << "[CMRT-TEST] ABORT: No track selected."
+                    " Right-click a track first.";
+        return;
+    }
+    const TrackId trackId = pTrack->getId();
+    if (!trackId.isValid()) {
+        qDebug() << "[CMRT-TEST] ABORT: Track has no valid database ID."
+                    " Make sure the track is in the Mixxx library.";
+        return;
+    }
+    qDebug() << "[CMRT-TEST] Using trackId:" << trackId
+             << "location:" << pTrack->getLocation();
+
+    // Grab live DB connection and DAO — same as the DAO test suite
+    const QSqlDatabase db =
+            m_pLibrary->trackCollectionManager()
+                    ->internalCollection()
+                    ->database();
+    TrackFingerprintDao& dao =
+            m_pLibrary->trackCollectionManager()
+                    ->internalCollection()
+                    ->getTrackFingerprintDAO();
+
+    int passed = 0;
+    int failed = 0;
+
+#define CMRT_PASS(msg)                            \
+    do {                                          \
+        qDebug() << "[CMRT-TEST] PASS:" << (msg); \
+        ++passed;                                 \
+    } while (0)
+#define CMRT_FAIL(msg)                            \
+    do {                                          \
+        qDebug() << "[CMRT-TEST] FAIL:" << (msg); \
+        ++failed;                                 \
+    } while (0)
+#define CMRT_CHECK(cond, msg) \
+    do {                      \
+        if (cond) {           \
+            CMRT_PASS(msg);   \
+        } else {              \
+            CMRT_FAIL(msg);   \
+        }                     \
+    } while (0)
+
+    // -----------------------------------------------------------------------
+    // Shared test signal parameters
+    // -----------------------------------------------------------------------
+    // 44100 Hz stereo, 30-second window.
+    // AnalyzerChromaprint feeds the entire track; here we synthesise enough
+    // frames for Chromaprint to produce a meaningful fingerprint.
+    const mixxx::audio::SampleRate sampleRate(44100);
+    const mixxx::audio::ChannelCount channelCount(2);
+    const SINT frameLength = static_cast<SINT>(sampleRate) * 30;
+
+    // Build one chunk of synthetic audio — a 440 Hz sawtooth at ~10% amplitude,
+    // stereo-interleaved.  Pure silence produces a simHash of 0, which is
+    // technically valid but misleading; a sawtooth guarantees a non-trivial
+    // fingerprint and a non-zero simHash.
+    const int kChunkSamples = 4096 * static_cast<int>(channelCount); // frames × channels
+    std::vector<CSAMPLE> audioChunk(kChunkSamples);
+    {
+        float phase = 0.0f;
+        const float phaseStep = 440.0f / static_cast<float>(sampleRate);
+        for (int i = 0; i < kChunkSamples; i += static_cast<int>(channelCount)) {
+            const CSAMPLE s = (phase - 0.5f) * 0.2f; // sawtooth [-0.1 … +0.1]
+            for (int ch = 0; ch < static_cast<int>(channelCount); ++ch) {
+                audioChunk[i + ch] = s;
+            }
+            phase += phaseStep;
+            if (phase >= 1.0f) {
+                phase -= 1.0f;
+            }
+        }
+    }
+    // Number of chunks needed to cover ~30 s at the given sample rate
+    const int kNumChunks =
+            (frameLength * static_cast<int>(channelCount)) / kChunkSamples + 1;
+    qDebug() << "[CMRT-TEST]   synthetic audio:"
+             << kNumChunks << "chunks of" << kChunkSamples << "samples"
+             << "(~30 s at 44100 Hz stereo)";
+
+    // =======================================================================
+    // SECTION A — Clean pipeline: initialize → processSamples → storeResults
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION A: Full analysis pipeline ---";
+
+    // Clean slate — remove any fingerprint left by a previous run or real analysis
+    dao.deleteFingerprintMetadata(trackId);
+    dao.deleteChromaFile(trackId);
+    dao.deleteQueueEntry(trackId);
+
+    {
+        AnalyzerChromaprint analyzer(m_pConfig, db);
+        AnalyzerTrack analyzerTrack(pTrack);
+
+        // A1. initialize() must return true when no valid fingerprint exists
+        bool initOk = analyzer.initialize(
+                analyzerTrack, sampleRate, channelCount, frameLength);
+        CMRT_CHECK(initOk,
+                "A1: initialize() returns true for track with no fingerprint");
+
+        if (!initOk) {
+            qDebug() << "[CMRT-TEST] ABORT section A: initialize() returned false"
+                        " — cannot continue pipeline test";
+        } else {
+            // A2. processSamples() must return true for every chunk
+            bool processOk = true;
+            for (int i = 0; i < kNumChunks; ++i) {
+                if (!analyzer.processSamples(
+                            audioChunk.data(),
+                            static_cast<SINT>(audioChunk.size()))) {
+                    processOk = false;
+                    qDebug() << "[CMRT-TEST]   processSamples() failed at chunk" << i;
+                    break;
+                }
+            }
+            CMRT_CHECK(processOk,
+                    "A2: processSamples() succeeds for all chunks");
+
+            // A3. storeResults() writes everything — no return value, check
+            //     side-effects via the DAO immediately after
+            analyzer.storeResults(pTrack);
+            analyzer.cleanup();
+
+            // --- Verify fingerprint_metadata ---
+            auto meta = dao.getFingerprintMetadata(trackId);
+            CMRT_CHECK(meta != nullptr,
+                    "A3: fingerprint_metadata row exists after storeResults()");
+
+            if (meta) {
+                CMRT_CHECK(meta->fingerprintValid,
+                        "A4: fingerprintValid = true");
+                CMRT_CHECK(!meta->fingerprintNeedsRegen,
+                        "A5: fingerprintNeedsRegen = false");
+                CMRT_CHECK(meta->cmrtGroupId == -1,
+                        "A6: cmrtGroupId = -1 (group assignment deferred to Q1)");
+                CMRT_CHECK(meta->fingerprintVersion == CHROMAPRINT_ALGORITHM_DEFAULT,
+                        "A7: fingerprintVersion matches CHROMAPRINT_ALGORITHM_DEFAULT");
+                CMRT_CHECK(meta->chromaSha256.length() == 64,
+                        "A8: chromaSha256 is 64 hex characters");
+                CMRT_CHECK(meta->computedAt.isValid(),
+                        "A9: computedAt is a valid timestamp");
+                // fingerprintDuration should be close to frameLength / sampleRate
+                const double expectedDuration =
+                        static_cast<double>(frameLength) / static_cast<double>(sampleRate);
+                CMRT_CHECK(qAbs(meta->fingerprintDuration - expectedDuration) < 1.0,
+                        "A10: fingerprintDuration within 1s of expected");
+                qDebug() << "[CMRT-TEST]   simHash:" << meta->fingerprintHash
+                         << "sha256:" << meta->chromaSha256.left(16) + "..."
+                         << "duration:" << meta->fingerprintDuration << "s";
+            }
+
+            // --- Verify .chroma file ---
+            QByteArray chromaBytes = dao.loadChromaFile(trackId);
+            CMRT_CHECK(!chromaBytes.isEmpty(),
+                    "A11: .chroma file exists after storeResults()");
+            CMRT_CHECK(chromaBytes.size() % static_cast<int>(sizeof(quint32)) == 0,
+                    "A12: .chroma file size is a multiple of 4 (uint32[] array)");
+            qDebug() << "[CMRT-TEST]   .chroma file size:" << chromaBytes.size()
+                     << "bytes =" << (chromaBytes.size() / 4) << "uint32 values";
+
+            // --- Verify AcoustID queue entry ---
+            QList<AcoustIdJob> jobs = dao.getPendingJobs(/*limit=*/50);
+            bool enqueued = false;
+            for (const auto& job : jobs) {
+                if (job.trackId == trackId) {
+                    enqueued = true;
+                    qDebug() << "[CMRT-TEST]   AcoustID job queued:"
+                             << "queueId:" << job.queueId
+                             << "status:" << job.status
+                             << "priority:" << job.priority;
+                    break;
+                }
+            }
+            CMRT_CHECK(enqueued,
+                    "A13: track enqueued in acoustid_queue after storeResults()");
+        }
+    }
+
+    // =======================================================================
+    // SECTION B — Skip behaviour: valid fingerprint → initialize() returns false
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION B: Skip when valid fingerprint exists ---";
+
+    {
+        AnalyzerChromaprint analyzer(m_pConfig, db);
+        AnalyzerTrack analyzerTrack(pTrack);
+
+        // The fingerprint written in Section A is valid and non-stale.
+        // initialize() must return false to signal "skip this track".
+        bool initSkip = analyzer.initialize(
+                analyzerTrack, sampleRate, channelCount, frameLength);
+        CMRT_CHECK(!initSkip,
+                "B1: initialize() returns false when valid fingerprint already exists");
+
+        // storeResults() called with no context must be a no-op (no crash,
+        // no mutation of the stored fingerprint).
+        analyzer.storeResults(pTrack);
+        analyzer.cleanup();
+
+        // Fingerprint must be unchanged
+        auto meta = dao.getFingerprintMetadata(trackId);
+        CMRT_CHECK(meta != nullptr && meta->fingerprintValid,
+                "B2: fingerprint_metadata unchanged after no-op storeResults()");
+        qDebug() << "[CMRT-TEST]   skip confirmed — fingerprint untouched";
+    }
+
+    // =======================================================================
+    // SECTION C — Stale detection: markNeedsRegen → initialize() returns true
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION C: Stale detection via markNeedsRegen ---";
+
+    {
+        // Mark the fingerprint stale
+        bool marked = dao.markFingerprintNeedsRegen(trackId);
+        CMRT_CHECK(marked, "C1: markFingerprintNeedsRegen returns true");
+
+        AnalyzerChromaprint analyzer(m_pConfig, db);
+        AnalyzerTrack analyzerTrack(pTrack);
+
+        // hasValidFingerprint() checks fingerprintNeedsRegen — must re-analyze
+        bool initRegen = analyzer.initialize(
+                analyzerTrack, sampleRate, channelCount, frameLength);
+        CMRT_CHECK(initRegen,
+                "C2: initialize() returns true when fingerprintNeedsRegen = true");
+
+        if (initRegen) {
+            // Feed a few chunks and store so the metadata is valid again
+            for (int i = 0; i < kNumChunks; ++i) {
+                analyzer.processSamples(
+                        audioChunk.data(),
+                        static_cast<SINT>(audioChunk.size()));
+            }
+            analyzer.storeResults(pTrack);
+        }
+        analyzer.cleanup();
+
+        // After re-analysis, flags must be reset
+        auto meta = dao.getFingerprintMetadata(trackId);
+        CMRT_CHECK(meta != nullptr && meta->fingerprintValid,
+                "C3: fingerprintValid = true after re-analysis");
+        CMRT_CHECK(meta != nullptr && !meta->fingerprintNeedsRegen,
+                "C4: fingerprintNeedsRegen = false after re-analysis");
+        qDebug() << "[CMRT-TEST]   stale detection confirmed — re-analyzed successfully";
+    }
+
+    // =======================================================================
+    // SECTION D — fingerprintValid = false → initialize() returns true
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION D: Stale detection via fingerprintValid ---";
+
+    {
+        // Manually set fingerprintValid = false via markFingerprintNeedsRegen
+        // (which also sets fingerprintValid = false atomically)
+        dao.markFingerprintNeedsRegen(trackId);
+
+        // Fetch and verify the flag is false
+        auto metaBefore = dao.getFingerprintMetadata(trackId);
+        CMRT_CHECK(metaBefore != nullptr && !metaBefore->fingerprintValid,
+                "D1: fingerprintValid = false after markFingerprintNeedsRegen");
+
+        AnalyzerChromaprint analyzer(m_pConfig, db);
+        AnalyzerTrack analyzerTrack(pTrack);
+
+        bool initInvalid = analyzer.initialize(
+                analyzerTrack, sampleRate, channelCount, frameLength);
+        CMRT_CHECK(initInvalid,
+                "D2: initialize() returns true when fingerprintValid = false");
+
+        if (initInvalid) {
+            for (int i = 0; i < kNumChunks; ++i) {
+                analyzer.processSamples(
+                        audioChunk.data(),
+                        static_cast<SINT>(audioChunk.size()));
+            }
+            analyzer.storeResults(pTrack);
+        }
+        analyzer.cleanup();
+
+        auto metaAfter = dao.getFingerprintMetadata(trackId);
+        CMRT_CHECK(metaAfter != nullptr && metaAfter->fingerprintValid,
+                "D3: fingerprintValid = true after re-analysis");
+        qDebug() << "[CMRT-TEST]   invalid-flag detection confirmed";
+    }
+
+    // =======================================================================
+    // SECTION E — SimHash determinism: same audio → same simHash
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION E: SimHash determinism ---";
+
+    {
+        // Capture the simHash produced by Section D's re-analysis
+        auto metaFirst = dao.getFingerprintMetadata(trackId);
+        const quint32 firstHash = metaFirst ? metaFirst->fingerprintHash : 0;
+        const QString firstSha256 = metaFirst ? metaFirst->chromaSha256 : QString();
+        qDebug() << "[CMRT-TEST]   first simHash:" << firstHash
+                 << "sha256:" << firstSha256.left(16) + "...";
+
+        // Re-analyze with identical synthetic audio → hashes must match
+        dao.markFingerprintNeedsRegen(trackId);
+
+        AnalyzerChromaprint analyzer(m_pConfig, db);
+        AnalyzerTrack analyzerTrack(pTrack);
+
+        bool initE = analyzer.initialize(
+                analyzerTrack, sampleRate, channelCount, frameLength);
+        if (initE) {
+            for (int i = 0; i < kNumChunks; ++i) {
+                analyzer.processSamples(
+                        audioChunk.data(),
+                        static_cast<SINT>(audioChunk.size()));
+            }
+            analyzer.storeResults(pTrack);
+        }
+        analyzer.cleanup();
+
+        auto metaSecond = dao.getFingerprintMetadata(trackId);
+        const quint32 secondHash = metaSecond ? metaSecond->fingerprintHash : 1;
+        const QString secondSha256 = metaSecond ? metaSecond->chromaSha256 : QString();
+
+        CMRT_CHECK(firstHash == secondHash,
+                "E1: simHash is deterministic — same audio produces same hash");
+        CMRT_CHECK(firstSha256 == secondSha256,
+                "E2: SHA-256 is deterministic — same audio produces same digest");
+        qDebug() << "[CMRT-TEST]   second simHash:" << secondHash
+                 << "(match:" << (firstHash == secondHash) << ")";
+    }
+
+    // =======================================================================
+    // SECTION F — cleanup() is idempotent (double-cleanup must not crash)
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION F: cleanup() idempotency ---";
+
+    {
+        AnalyzerChromaprint analyzer(m_pConfig, db);
+        // cleanup() before any initialize() — context is null
+        analyzer.cleanup();
+        analyzer.cleanup(); // second call — must not crash or assert
+        CMRT_PASS("F1: cleanup() before initialize() does not crash");
+
+        // cleanup() after a full analysis cycle
+        AnalyzerTrack analyzerTrack(pTrack);
+        dao.markFingerprintNeedsRegen(trackId);
+
+        bool initF = analyzer.initialize(
+                analyzerTrack, sampleRate, channelCount, frameLength);
+        if (initF) {
+            analyzer.processSamples(
+                    audioChunk.data(),
+                    static_cast<SINT>(audioChunk.size()));
+            // Do NOT call storeResults() — test cleanup with partial data
+        }
+        analyzer.cleanup();
+        analyzer.cleanup(); // second cleanup — must not crash
+        CMRT_PASS("F2: cleanup() after partial pipeline does not crash");
+    }
+
+    // =======================================================================
+    // SECTION G — initialize() with invalid TrackId (track not in library)
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] --- SECTION G: initialize() with invalid track ---";
+
+    {
+        // Create a dummy track with no library ID
+        TrackPointer pFakeTrack = Track::newTemporary();
+        // newTemporary() returns a track whose getId() is invalid (not in DB)
+        CMRT_CHECK(!pFakeTrack->getId().isValid(),
+                "G1: newTemporary() track has invalid TrackId (precondition)");
+
+        AnalyzerChromaprint analyzer(m_pConfig, db);
+        AnalyzerTrack fakeAnalyzerTrack(pFakeTrack);
+
+        bool initFake = analyzer.initialize(
+                fakeAnalyzerTrack, sampleRate, channelCount, frameLength);
+        CMRT_CHECK(!initFake,
+                "G2: initialize() returns false for track with invalid TrackId");
+
+        analyzer.cleanup();
+        qDebug() << "[CMRT-TEST]   invalid track guard confirmed";
+    }
+
+    // =======================================================================
+    // SUMMARY
+    // =======================================================================
+    qDebug() << "[CMRT-TEST] ============================================";
+    qDebug() << "[CMRT-TEST] RESULTS: PASSED =" << passed
+             << "| FAILED =" << failed
+             << "| TOTAL =" << (passed + failed);
+    if (failed == 0) {
+        qDebug() << "[CMRT-TEST] ALL TESTS PASSED";
+    } else {
+        qDebug() << "[CMRT-TEST] *** SOME TESTS FAILED — grep [CMRT-TEST] FAIL ***";
+    }
+    qDebug() << "[CMRT-TEST] ============================================";
+
+#undef CMRT_PASS
+#undef CMRT_FAIL
+#undef CMRT_CHECK
 }

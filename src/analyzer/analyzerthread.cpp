@@ -3,6 +3,7 @@
 #include <mutex>
 
 #include "analyzer/analyzerbeats.h"
+#include "analyzer/analyzerchromaprint.h"
 #include "analyzer/analyzerebur128.h"
 #include "analyzer/analyzergain.h"
 #include "analyzer/analyzerkey.h"
@@ -93,7 +94,9 @@ void AnalyzerThread::doRun() {
     // before returning from this function.
     mixxx::DbConnectionPooler dbConnectionPooler;
 
+    qDebug() << "CMRT Debug: Starting analyzer thread";
     if (m_modeFlags & AnalyzerModeFlags::WithWaveform) {
+        qDebug() << "CMRT Debug: Analyzing waveform";
         dbConnectionPooler = mixxx::DbConnectionPooler(m_dbConnectionPool); // move assignment
         if (!dbConnectionPooler.isPooling()) {
             kLogger.warning()
@@ -102,6 +105,10 @@ void AnalyzerThread::doRun() {
         }
         QSqlDatabase dbConnection = mixxx::DbConnectionPooled(m_dbConnectionPool);
         m_analyzers.push_back(AnalyzerWithState(std::make_unique<AnalyzerWaveform>(m_pConfig, dbConnection)));
+
+        qDebug() << "CMRT Debug: Analyzing fingerprint";
+        m_analyzers.push_back(AnalyzerWithState(
+                std::make_unique<AnalyzerChromaprint>(m_pConfig, dbConnection)));
     }
     if (AnalyzerGain::isEnabled(ReplayGainSettings(m_pConfig))) {
         m_analyzers.push_back(AnalyzerWithState(std::make_unique<AnalyzerGain>(m_pConfig)));
