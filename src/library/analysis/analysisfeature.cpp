@@ -7,6 +7,7 @@
 #include "controllers/keyboard/keyboardeventfilter.h"
 #include "library/analysis/dlganalysis.h"
 #include "library/library.h"
+#include "library/library_prefs.h"
 #include "library/trackcollectionmanager.h"
 #include "moc_analysisfeature.cpp"
 #include "sources/soundsourceproxy.h"
@@ -39,6 +40,11 @@ AnalyzerModeFlags getAnalyzerModeFlags(
     int modeFlags = AnalyzerModeFlags::WithBeats | AnalyzerModeFlags::LowPriority;
     if (pConfig->getValue<bool>(ConfigKey("[Library]", "EnableWaveformGenerationWithAnalysis"), true)) {
         modeFlags |= AnalyzerModeFlags::WithWaveform;
+    }
+    // Fingerprint analysis is opt-in — disabled by default
+    if (pConfig->getValue(
+                mixxx::library::prefs::kFingerprintAnalysisEnabled, false)) {
+        modeFlags |= AnalyzerModeFlags::WithFingerprint;
     }
     return static_cast<AnalyzerModeFlags>(modeFlags);
 }
