@@ -16,6 +16,7 @@
 #include "library/dao/cuedao.h"
 #include "library/dao/libraryhashdao.h"
 #include "library/dao/playlistdao.h"
+#include "library/dao/trackfingerprintdao.h"
 #include "library/dao/trackschema.h"
 #include "library/library_prefs.h"
 #include "library/queryutil.h"
@@ -89,14 +90,16 @@ QSet<QString> collectTrackLocations(FwdSqlQuery& query) {
 } // anonymous namespace
 
 TrackDAO::TrackDAO(CueDAO& cueDao,
-                   PlaylistDAO& playlistDao,
-                   AnalysisDao& analysisDao,
-                   LibraryHashDAO& libraryHashDao,
-                   UserSettingsPointer pConfig)
+        PlaylistDAO& playlistDao,
+        AnalysisDao& analysisDao,
+        LibraryHashDAO& libraryHashDao,
+        TrackFingerprintDao& fingerprintDao,
+        UserSettingsPointer pConfig)
         : m_cueDao(cueDao),
           m_playlistDao(playlistDao),
           m_analysisDao(analysisDao),
           m_libraryHashDao(libraryHashDao),
+          m_fingerprintDao(fingerprintDao),
           m_pConfig(pConfig),
           m_trackLocationIdColumn(UndefinedRecordIndex),
           m_queryLibraryIdColumn(UndefinedRecordIndex),
@@ -1105,6 +1108,40 @@ bool TrackDAO::onPurgingTracks(
                         SqlStringFormatter::formatList(m_database, locations)));
         if (query.hasError() || !query.execPrepared()) {
             return false;
+        }
+    }
+    {
+        // Delete orphaned fingerprint metadata for purged tracks
+        FwdSqlQuery query(m_database, QString("DELETE FROM fingerprint_metadata "
+                                              "WHERE track_id IN (%1)")
+                                              .arg(idListJoined));
+        if (query.hasError() || !query.execPrepared()) {
+            return false;
+        }
+    }
+    {
+        // Delete CMRT group memberships for purged tracks
+        FwdSqlQuery query(m_database, QString("DELETE FROM cmrt_members "
+                                              "WHERE track_id IN (%1)")
+                                              .arg(idListJoined));
+        if (query.hasError() || !query.execPrepared()) {
+            return false;
+        }
+    }
+    {
+        // Delete pending AcoustID jobs for purged tracks
+        FwdSqlQuery query(m_database, QString("DELETE FROM acoustid_queue "
+                                              "WHERE track_id IN (%1)")
+                                              .arg(idListJoined));
+        if (query.hasError() || !query.execPrepared()) {
+            return false;
+        }
+    }
+    {
+        // Delete .chroma files for purged tracks.
+        // DB rows are handled above; files must be cleaned up separately
+        for (const TrackId& trackId : trackIds) {
+            m_fingerprintDao.deleteChromaFile(trackId);
         }
     }
     {
