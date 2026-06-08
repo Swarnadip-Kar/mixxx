@@ -326,11 +326,14 @@ bool AcoustIdWorker::processJob(const AcoustIdJob& job) {
                 : result.recordingIds.first().toString(QUuid::WithoutBraces);
 
         // Persist to cache so other tracks with the same audio skip the API.
+        // releaseId is included so cache hits also populate the release field
+        // for tracks that share the same SHA-256 (exact audio duplicates).
         AcoustIdCacheEntry cacheEntry;
         cacheEntry.chromaSha256 = pMetadata->chromaSha256;
         cacheEntry.acoustidId = result.acoustidId;
         cacheEntry.confidence = result.score;
         cacheEntry.musicbrainzRecordingId = mbRecordingId;
+        cacheEntry.musicbrainzReleaseId = result.releaseId;
         cacheEntry.lookupTimestamp = QDateTime::currentDateTimeUtc();
         m_pFingerprintDao->cacheAcoustIdResult(cacheEntry);
 
@@ -341,9 +344,9 @@ bool AcoustIdWorker::processJob(const AcoustIdJob& job) {
                 result.acoustidId,
                 QStringLiteral("completed"),
                 mbRecordingId,
-                QString(), // release ID — requires a separate MusicBrainz call
-                QString(),
-                QString());
+                result.releaseId,
+                result.trackId,
+                result.artistId);
         m_pFingerprintDao->deleteQueueEntry(job.trackId);
         return true;
     }
