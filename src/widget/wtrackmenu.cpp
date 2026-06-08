@@ -2448,6 +2448,18 @@ void WTrackMenu::slotClearAllMetadata() {
     applyTrackPointerOperation(
             progressLabelText,
             &trackOperator);
+
+    // Also clear fingerprint data — this is not covered by TrackPointerOperation
+    // because clearFingerprintData works on TrackId + DAO directly (no Track object
+    // needed), and mixing the two paradigms inside a TrackPointerOperation would
+    // require injecting the DAO into it unnecessarily.
+    const TrackIdList trackIds = getTrackIds();
+    TrackFingerprintDao& dao = m_pLibrary->trackCollectionManager()
+                                       ->internalCollection()
+                                       ->getTrackFingerprintDAO();
+    for (const TrackId& id : std::as_const(trackIds)) {
+        dao.clearFingerprintData(id);
+    }
 }
 
 void WTrackMenu::slotClearFingerprint() {
