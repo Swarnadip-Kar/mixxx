@@ -397,7 +397,8 @@ std::optional<AcoustIdWorker::LookupResult> AcoustIdWorker::doLookup(
     // recordingids returns the MusicBrainz UUID for each match — sufficient
     // for our cache and library write. A separate MusicBrainz call is needed
     // for release IDs (deferred to a later PR).
-    params.addQueryItem(QStringLiteral("meta"), QStringLiteral("recordingids"));
+    params.addQueryItem(QStringLiteral("meta"),
+            QStringLiteral("recordings releases tracks"));
     params.addQueryItem(QStringLiteral("fingerprint"), fingerprint);
     params.addQueryItem(QStringLiteral("duration"), QString::number(durationSeconds));
 
@@ -488,11 +489,48 @@ std::optional<AcoustIdWorker::LookupResult> AcoustIdWorker::doLookup(
     const QJsonArray recordings =
             topResult.value(QStringLiteral("recordings")).toArray();
     for (const auto& rec : recordings) {
-        const QUuid id(rec.toObject()
-                        .value(QStringLiteral("id"))
-                        .toString());
+        const QJsonObject recObj = rec.toObject();
+        const QUuid id(recObj.value(QStringLiteral("id")).toString());
         if (!id.isNull()) {
             result.recordingIds.append(id);
+        }
+    }
+
+    if (!recordings.isEmpty()) {
+        const QJsonObject firstRec = recordings.first().toObject();
+        const QJsonArray releases =
+                firstRec.value(QStringLiteral("releases")).toArray();
+        if (!releases.isEmpty()) {
+            const QJsonObject firstRelease = releases.first().toObject();
+
+            result.releaseId =
+                    firstRelease.value(QStringLiteral("id")).toString();
+
+            const QJsonArray artists =
+                    firstRelease.value(QStringLiteral("artists")).toArray();
+            if (!artists.isEmpty()) {
+                result.artistId = artists.first()
+                                          .toObject()
+                                          .value(QStringLiteral("id"))
+                                          .toString();
+            }
+
+            // Track ID lives inside mediums[0].tracks[0].
+            const QJsonArray mediums =
+                    firstRelease.value(QStringLiteral("mediums")).toArray();
+            if (!mediums.isEmpty()) {
+                const QJsonArray tracks =
+                        mediums.first()
+                                .toObject()
+                                .value(QStringLiteral("tracks"))
+                                .toArray();
+                if (!tracks.isEmpty()) {
+                    result.trackId = tracks.first()
+                                             .toObject()
+                                             .value(QStringLiteral("id"))
+                                             .toString();
+                }
+            }
         }
     }
 
