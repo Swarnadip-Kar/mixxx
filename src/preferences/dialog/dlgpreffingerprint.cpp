@@ -3,6 +3,7 @@
 #include <QUrl>
 
 #include "library/library_prefs.h"
+#include "library/trackcollection.h"
 #include "moc_dlgpreffingerprint.cpp"
 #include "util/desktophelper.h"
 #include "util/string.h"
@@ -16,9 +17,13 @@ const QString kAcoustIdApiKeyUrl =
 
 } // anonymous namespace
 
-DlgPrefFingerprint::DlgPrefFingerprint(QWidget* parent, UserSettingsPointer pConfig)
+DlgPrefFingerprint::DlgPrefFingerprint(
+        QWidget* parent,
+        UserSettingsPointer pConfig,
+        TrackCollectionManager* pTrackCollectionManager)
         : DlgPreferencePage(parent),
-          m_pConfig(pConfig) {
+          m_pConfig(pConfig),
+          m_pTrackCollectionManager(pTrackCollectionManager) {
     setupUi(this);
 
     // Build the "Get your key ↗" link using the preference page's link colour
@@ -53,6 +58,11 @@ DlgPrefFingerprint::DlgPrefFingerprint(QWidget* parent, UserSettingsPointer pCon
                     }
                 }
             });
+
+    connect(btnClearAllFingerprints,
+            &QPushButton::clicked,
+            this,
+            &DlgPrefFingerprint::slotClearAllFingerprints);
 
     slotUpdate();
     // No connections needed — the checkbox has no side effects on other
@@ -119,4 +129,40 @@ void DlgPrefFingerprint::setAcoustIdGroupEnabled(bool fingerprintEnabled) {
             checkBoxAcoustIdAutoSubmit->setChecked(false);
         }
     }
+}
+
+void DlgPrefFingerprint::slotClearAllFingerprints() {
+    // Confirmation dialog — same pattern as slotRemoveDir() in DlgPrefLibrary.
+    QMessageBox msgBox;
+    msgBox.setIcon(QMessageBox::Warning);
+    msgBox.setWindowTitle(tr("Clear All Fingerprints?"));
+    msgBox.setText(tr(
+            "This will delete all stored Chromaprint fingerprints, AcoustID queue "
+            "entries, and CMRT group memberships for every track in your library."
+            "Tracks will be re-fingerprinted the next time fingerprint analysis runs."
+            "This cannot be undone."));
+    QPushButton* clearButton = msgBox.addButton(
+            tr("Clear All"), QMessageBox::DestructiveRole);
+    msgBox.addButton(QMessageBox::Cancel);
+    msgBox.setDefaultButton(QMessageBox::Cancel);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() != clearButton) {
+        return;
+    }
+
+    if (!m_pTrackCollectionManager) {
+        qWarning() << "DlgPrefFingerprint::slotClearAllFingerprints: "
+                      "no TrackCollectionManager available";
+        return;
+    }
+
+    TrackFingerprintDao& dao =
+            m_pTrackCollectionManager->internalCollection()->getTrackFingerprintDAO();
+    const int cleared = dao.clearAllFingerprintData();
+
+    QMessageBox::information(
+            this,
+            tr("Fingerprints Cleared"),
+            tr("Cleared fingerprint data for %n track(s).", "", cleared));
 }
