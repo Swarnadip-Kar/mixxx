@@ -662,6 +662,7 @@ bool TrackFingerprintDao::saveChromaFile(TrackId trackId, const QByteArray& data
             success = false;
         } else {
             if (tempFile.write(data) != data.size()) {
+                tempFile.remove();
                 success = false;
             }
             tempFile.close();
