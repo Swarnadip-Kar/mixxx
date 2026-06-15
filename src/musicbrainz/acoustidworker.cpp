@@ -333,7 +333,7 @@ bool AcoustIdWorker::processJob(const AcoustIdJob& job) {
         cacheEntry.acoustidId = result.acoustidId;
         cacheEntry.confidence = result.score;
         cacheEntry.musicbrainzRecordingId = mbRecordingId;
-        cacheEntry.musicbrainzReleaseId = result.releaseId;
+        cacheEntry.musicbrainzReleaseId = result.musicbrainzReleaseId;
         cacheEntry.lookupTimestamp = QDateTime::currentDateTimeUtc();
         m_pFingerprintDao->cacheAcoustIdResult(cacheEntry);
 
@@ -344,9 +344,9 @@ bool AcoustIdWorker::processJob(const AcoustIdJob& job) {
                 result.acoustidId,
                 QStringLiteral("completed"),
                 mbRecordingId,
-                result.releaseId,
-                result.trackId,
-                result.artistId);
+                result.musicbrainzReleaseId,
+                result.musicbrainzTrackId,
+                result.musicbrainzArtistId);
         m_pFingerprintDao->deleteQueueEntry(job.trackId);
         return true;
     }
@@ -506,16 +506,16 @@ std::optional<AcoustIdWorker::LookupResult> AcoustIdWorker::doLookup(
         if (!releases.isEmpty()) {
             const QJsonObject firstRelease = releases.first().toObject();
 
-            result.releaseId =
+            result.musicbrainzReleaseId =
                     firstRelease.value(QStringLiteral("id")).toString();
 
             const QJsonArray artists =
                     firstRelease.value(QStringLiteral("artists")).toArray();
             if (!artists.isEmpty()) {
-                result.artistId = artists.first()
-                                          .toObject()
-                                          .value(QStringLiteral("id"))
-                                          .toString();
+                result.musicbrainzArtistId = artists.first()
+                                                     .toObject()
+                                                     .value(QStringLiteral("id"))
+                                                     .toString();
             }
 
             // Track ID lives inside mediums[0].tracks[0].
@@ -528,10 +528,10 @@ std::optional<AcoustIdWorker::LookupResult> AcoustIdWorker::doLookup(
                                 .value(QStringLiteral("tracks"))
                                 .toArray();
                 if (!tracks.isEmpty()) {
-                    result.trackId = tracks.first()
-                                             .toObject()
-                                             .value(QStringLiteral("id"))
-                                             .toString();
+                    result.musicbrainzTrackId = tracks.first()
+                                                        .toObject()
+                                                        .value(QStringLiteral("id"))
+                                                        .toString();
                 }
             }
         }
