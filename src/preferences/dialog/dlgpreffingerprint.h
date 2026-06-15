@@ -1,9 +1,10 @@
 #pragma once
 
-#include "library/trackcollectionmanager.h"
 #include "preferences/dialog/dlgpreferencepage.h"
 #include "preferences/dialog/ui_dlgpreffingerprint.h"
 #include "preferences/usersettings.h"
+
+class TrackCollectionManager;
 
 class DlgPrefFingerprint : public DlgPreferencePage, public Ui::DlgPrefFingerprintDlg {
     Q_OBJECT

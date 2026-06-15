@@ -597,9 +597,8 @@ bool TrackFingerprintDao::updateCmrtGroupTrackCount(int groupId, int delta) cons
 }
 
 QDir TrackFingerprintDao::getFingerprintStoragePath() const {
-    QString settingsPath = m_pConfig->getSettingsPath();
-    QDir dir(settingsPath.append("/fingerprints/"));
-    return dir.absolutePath().append("/");
+    return QDir(m_pConfig->getSettingsPath() +
+            QStringLiteral("/fingerprints"));
 }
 
 QString TrackFingerprintDao::getChromaFilePath(TrackId trackId) const {
@@ -663,6 +662,7 @@ bool TrackFingerprintDao::saveChromaFile(TrackId trackId, const QByteArray& data
             success = false;
         } else {
             if (tempFile.write(data) != data.size()) {
+                tempFile.remove();
                 success = false;
             }
             tempFile.close();
