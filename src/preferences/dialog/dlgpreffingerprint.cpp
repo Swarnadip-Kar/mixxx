@@ -4,6 +4,7 @@
 
 #include "library/library_prefs.h"
 #include "library/trackcollection.h"
+#include "library/trackcollectionmanager.h"
 #include "moc_dlgpreffingerprint.cpp"
 #include "util/desktophelper.h"
 #include "util/string.h"
