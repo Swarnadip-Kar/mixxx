@@ -13,6 +13,7 @@
 #include "analyzer/analyzertrack.h"
 #include "control/controlobject.h"
 #include "library/coverartutils.h"
+#include "library/dao/trackfingerprintdao.h"
 #include "library/dao/trackschema.h"
 #include "library/dlgtagfetcher.h"
 #include "library/dlgtrackinfo.h"
