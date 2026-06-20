@@ -98,6 +98,12 @@ struct MbidGroupCandidate {
     TrackId canonicalTrackId;
 };
 
+struct TrackQualityInfo {
+    QString filetype;   // library.filetype
+    int sampleRate{0};  // library.samplerate
+    qint64 fileSize{0}; // track_locations.filesize
+};
+
 class TrackFingerprintDao : public DAO {
   public:
     explicit TrackFingerprintDao(UserSettingsPointer pConfig);
@@ -116,10 +122,14 @@ class TrackFingerprintDao : public DAO {
     QList<MbidGroupCandidate> getGroupsForMbid(const QString& musicbrainzRecordingId) const;
     QList<MbidGroupCandidate> getAllGroupCandidates() const;
 
+    std::optional<TrackQualityInfo> getTrackQualityInfo(TrackId trackId) const;
+    bool updateCanonicalTrack(int groupId, TrackId newCanonicalTrackId) const;
+
     // cmrt_members operations
     bool addCmrtMember(const CmrtMember& member) const;
     QList<CmrtMember> getCmrtMembersForGroup(int groupId) const;
     bool deleteCmrtMember(TrackId trackId) const;
+    bool updateMemberOffset(TrackId trackId, double offsetFromCanonical) const;
 
     // Updates track_count on cmrt_groups when membership changes.
     // Pass +1 when adding a member, -1 when removing.
