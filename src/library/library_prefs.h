@@ -64,6 +64,14 @@ const int kSidebarHoverExpandDelayDefault = 500; // ms
 
 extern const ConfigKey kSidebarHoverExpandDelayConfigKey;
 
+extern const ConfigKey kFingerprintAnalysisEnabledConfigKey;
+
+extern const ConfigKey kAcoustIdUserApiKeyConfigKey;
+
+extern const ConfigKey kAcoustIdAutoSubmitConfigKey;
+
+extern const ConfigKey kCmrtAutoGroupingEnabledConfigKey;
+
 } // namespace prefs
 
 } // namespace library
