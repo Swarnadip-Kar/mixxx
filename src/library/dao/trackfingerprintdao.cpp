@@ -682,6 +682,49 @@ bool TrackFingerprintDao::updateMemberOffset(TrackId trackId, double offsetFromC
     return affected;
 }
 
+double TrackFingerprintDao::getMemberQualityScore(TrackId trackId) const {
+    if (sDebugTrackFingerprintDao) {
+        qDebug() << "TrackFingerprintDao -> [getMemberQualityScore] -> entry"
+                 << "trackId:" << trackId;
+    }
+
+    if (!m_database.isOpen() || !trackId.isValid()) {
+        qDebug() << "TrackFingerprintDao -> [getMemberQualityScore] -> "
+                    "aborting: database not open or invalid trackId";
+        return -1.0;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QString(
+            "SELECT quality_score FROM %1 WHERE track_id=:track_id")
+                    .arg(kCmrtMembersTableName));
+    query.bindValue(":track_id", trackId.toVariant());
+
+    if (!query.exec()) {
+        LOG_FAILED_QUERY(query) << "couldn't fetch quality_score for track" << trackId;
+        return -1.0;
+    }
+
+    if (!query.next()) {
+        if (sDebugTrackFingerprintDao) {
+            qDebug() << "TrackFingerprintDao -> [getMemberQualityScore] -> "
+                        "no cmrt_members row found for trackId:"
+                     << trackId;
+        }
+        return -1.0;
+    }
+
+    // quality_score is nullable -- same sentinel addCmrtMember() already uses
+    const QVariant qualityVar = query.value(0);
+    const double score = qualityVar.isNull() ? -1.0 : qualityVar.toDouble();
+
+    if (sDebugTrackFingerprintDao) {
+        qDebug() << "TrackFingerprintDao -> [getMemberQualityScore] -> found"
+                 << "trackId:" << trackId << "score:" << score;
+    }
+    return score;
+}
+
 QList<CmrtMember> TrackFingerprintDao::getCmrtMembersForGroup(int groupId) const {
     if (sDebugTrackFingerprintDao) {
         qDebug() << "TrackFingerprintDao -> [getCmrtMembersForGroup] -> entry"
