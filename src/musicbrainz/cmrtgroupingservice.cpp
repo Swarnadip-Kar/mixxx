@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "analyzer/qualityscorer.h"
+#include "library/library_prefs.h"
 
 namespace mixxx {
 
@@ -33,8 +34,10 @@ double scoreTrackQuality(const std::optional<TrackQualityInfo>& info) {
 
 } // namespace
 
-CmrtGroupingService::CmrtGroupingService(TrackFingerprintDao& fingerprintDao)
-        : m_fingerprintDao(fingerprintDao) {
+CmrtGroupingService::CmrtGroupingService(
+        TrackFingerprintDao& fingerprintDao, UserSettingsPointer pConfig)
+        : m_fingerprintDao(fingerprintDao),
+          m_pConfig(pConfig) {
 }
 
 void CmrtGroupingService::processTrack(
@@ -70,6 +73,10 @@ void CmrtGroupingService::processTrack(
     const QVector<quint32> trackFp =
             chromaBytesToVector(m_fingerprintDao.loadChromaFile(trackId));
 
+    const float matchThreshold = static_cast<float>(m_pConfig->getValue(
+            mixxx::library::prefs::kCmrtMatchThresholdConfigKey,
+            mixxx::library::prefs::kCmrtMatchThresholdDefault));
+
     // Check every candidate and keep the best-scoring match rather than
     // stopping at the first one that passes -- with an MBID filter this is
     // usually one candidate anyway, but the no-MBID fallback can hand back
@@ -91,7 +98,8 @@ void CmrtGroupingService::processTrack(
 
         const QVector<quint32> candidateFp = chromaBytesToVector(
                 m_fingerprintDao.loadChromaFile(candidate.canonicalTrackId));
-        const auto matchResult = FingerprintMatcher::compare(trackFp, candidateFp);
+        const auto matchResult = FingerprintMatcher::compare(
+                trackFp, candidateFp, matchThreshold);
         if (matchResult.isMatch &&
                 (!haveBestMatch || matchResult.score > bestMatchResult.score)) {
             haveBestMatch = true;
@@ -185,8 +193,18 @@ void CmrtGroupingService::handleMatchedCandidate(TrackId newTrackId,
         double newTrackQualityScore) {
     const double offsetSeconds =
             matchResult.offsetItems * FingerprintMatcher::kItemDurationSeconds;
-    const double canonicalQualityScore = scoreTrackQuality(
-            m_fingerprintDao.getTrackQualityInfo(candidate.canonicalTrackId));
+    // Canonical's score was already computed and stored in cmrt_members when
+    // it became canonical (createNewGroup()/replaceCanonical()) -- reuse it
+    // instead of re-deriving it from TrackQualityInfo every time a new track
+    // matches into this group.
+    double canonicalQualityScore =
+            m_fingerprintDao.getMemberQualityScore(candidate.canonicalTrackId);
+    if (canonicalQualityScore < 0.0) {
+        // Shouldn't happen -- every canonical has a member row -- but fall
+        // back rather than let an unscored canonical always lose ties.
+        canonicalQualityScore = scoreTrackQuality(
+                m_fingerprintDao.getTrackQualityInfo(candidate.canonicalTrackId));
+    }
 
     if (sDebugCmrtGroupingService) {
         qDebug() << "CmrtGroupingService -> [handleMatchedCandidate] ->"
@@ -200,7 +218,8 @@ void CmrtGroupingService::handleMatchedCandidate(TrackId newTrackId,
         replaceCanonical(candidate.cmrtGroupId,
                 candidate.canonicalTrackId,
                 newTrackId,
-                offsetSeconds);
+                offsetSeconds,
+                newTrackQualityScore);
     } else {
         assignToExistingGroup(
                 newTrackId, candidate.cmrtGroupId, offsetSeconds, newTrackQualityScore);
@@ -210,7 +229,8 @@ void CmrtGroupingService::handleMatchedCandidate(TrackId newTrackId,
 void CmrtGroupingService::replaceCanonical(int groupId,
         TrackId oldCanonicalId,
         TrackId newCanonicalId,
-        double offsetOfNewFromOld) {
+        double offsetOfNewFromOld,
+        double newCanonicalQualityScore) {
     if (sDebugCmrtGroupingService) {
         qDebug() << "CmrtGroupingService -> [replaceCanonical] ->"
                  << "group:" << groupId << "old:" << oldCanonicalId
@@ -232,8 +252,7 @@ void CmrtGroupingService::replaceCanonical(int groupId,
     newMember.groupId = groupId;
     newMember.trackId = newCanonicalId;
     newMember.offsetFromCanonical = 0.0;
-    newMember.qualityScore =
-            scoreTrackQuality(m_fingerprintDao.getTrackQualityInfo(newCanonicalId));
+    newMember.qualityScore = newCanonicalQualityScore;
     newMember.addedAt = QDateTime::currentDateTimeUtc();
     m_fingerprintDao.addCmrtMember(newMember);
     m_fingerprintDao.updateCmrtGroupTrackCount(groupId, +1);

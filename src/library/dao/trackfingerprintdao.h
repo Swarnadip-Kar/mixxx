@@ -131,6 +131,8 @@ class TrackFingerprintDao : public DAO {
     bool deleteCmrtMember(TrackId trackId) const;
     bool updateMemberOffset(TrackId trackId, double offsetFromCanonical) const;
 
+    double getMemberQualityScore(TrackId trackId) const;
+
     // Updates track_count on cmrt_groups when membership changes.
     // Pass +1 when adding a member, -1 when removing.
     bool updateCmrtGroupTrackCount(int groupId, int delta) const;

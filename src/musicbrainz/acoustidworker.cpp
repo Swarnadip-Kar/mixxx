@@ -77,7 +77,7 @@ void AcoustIdWorker::doRun() {
     m_pFingerprintDao = std::make_unique<TrackFingerprintDao>(m_pConfig);
     m_pFingerprintDao->initialize(dbConnection);
 
-    m_pGroupingService = std::make_unique<CmrtGroupingService>(*m_pFingerprintDao);
+    m_pGroupingService = std::make_unique<CmrtGroupingService>(*m_pFingerprintDao, m_pConfig);
 
     // QNetworkAccessManager must be created in the thread that uses it.
     // Local QEventLoops in doLookup() and checkConnectivity() provide the
@@ -277,10 +277,9 @@ bool AcoustIdWorker::processJob(const AcoustIdJob& job) {
                 QString(),
                 QString());
 
-        // TODO(XXX):
-        // A cache hit means another track already has this exact SHA-256, so
-        // this track is a likely candidate for that track's CMRT group too
-        // Left out to keep the scope to - every NEW lookup also runs grouping
+        if (m_pConfig->getValue(mixxx::library::prefs::kCmrtAutoGroupingEnabledConfigKey, true)) {
+            m_pGroupingService->processTrack(job.trackId, pCached->musicbrainzRecordingId);
+        }
 
         m_pFingerprintDao->deleteQueueEntry(job.trackId);
         return true;
