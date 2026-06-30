@@ -38,7 +38,8 @@ class CmrtGroupingService {
     void replaceCanonical(int groupId,
             TrackId oldCanonicalId,
             TrackId newCanonicalId,
-            double offsetOfNewFromOld);
+            double offsetOfNewFromOld,
+            double newCanonicalQualityScore);
 
     TrackFingerprintDao& m_fingerprintDao; // not owned; lives on worker thread
     UserSettingsPointer m_pConfig;
