@@ -693,6 +693,7 @@ reapplying those migrations.
         track_id INTEGER NOT NULL,
         offset_from_canonical REAL DEFAULT 0,
         quality_score REAL,
+        match_score REAL,
         is_fake_lossless INTEGER DEFAULT 0,
         added_at INTEGER NOT NULL,
         user_quality_rating INTEGER,
