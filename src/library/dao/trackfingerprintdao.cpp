@@ -1656,6 +1656,10 @@ bool TrackFingerprintDao::clearFingerprintData(TrackId trackId) const {
                     return false; // ScopedTransaction destructor rolls back
                 }
 
+                if (!updateMemberMatchScore(bestCandidateId, -1.0)) {
+                    return false; // ScopedTransaction destructor rolls back
+                }
+
                 // O(member count) .chroma reads — fine for the small group
                 // sizes expected here (a handful of masterings per recording).
                 const QVector<quint32> newCanonicalFp =
@@ -1674,6 +1678,9 @@ bool TrackFingerprintDao::clearFingerprintData(TrackId trackId) const {
                             mixxx::FingerprintMatcher::kItemDurationSeconds;
 
                     if (!updateMemberOffset(member.trackId, offsetSeconds)) {
+                        return false; // ScopedTransaction destructor rolls back
+                    }
+                    if (!updateMemberMatchScore(member.trackId, matchResult.score)) {
                         return false; // ScopedTransaction destructor rolls back
                     }
                     if (auto pMemberMeta = getFingerprintMetadata(member.trackId)) {
