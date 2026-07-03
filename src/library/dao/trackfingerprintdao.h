@@ -53,6 +53,7 @@ struct CmrtMember {
     TrackId trackId;
     double offsetFromCanonical{0.0};
     double qualityScore{-1.0}; // -1.0 if not yet scored
+    double matchScore{-1.0};
     bool isFakeLossless{false};
     QDateTime addedAt;
     int userQualityRating{-1}; // -1 if unrated
@@ -130,6 +131,8 @@ class TrackFingerprintDao : public DAO {
     QList<CmrtMember> getCmrtMembersForGroup(int groupId) const;
     bool deleteCmrtMember(TrackId trackId) const;
     bool updateMemberOffset(TrackId trackId, double offsetFromCanonical) const;
+
+    bool updateMemberMatchScore(TrackId trackId, double matchScore) const;
 
     double getMemberQualityScore(TrackId trackId) const;
 
