@@ -608,9 +608,9 @@ bool TrackFingerprintDao::addCmrtMember(const CmrtMember& member) const {
     query.prepare(QString(
             "INSERT INTO %1 "
             "(group_id, track_id, offset_from_canonical, quality_score, "
-            "is_fake_lossless, added_at, user_quality_rating) "
+            "match_score, is_fake_lossless, added_at, user_quality_rating) "
             "VALUES (:group_id, :track_id, :offset, :quality_score, "
-            ":is_fake_lossless, :added_at, :user_quality_rating)")
+            ":match_score, :is_fake_lossless, :added_at, :user_quality_rating)")
                     .arg(kCmrtMembersTableName));
 
     query.bindValue(":group_id", member.groupId);
@@ -621,6 +621,12 @@ bool TrackFingerprintDao::addCmrtMember(const CmrtMember& member) const {
         query.bindValue(":quality_score", QVariant(QMetaType(QMetaType::Double)));
     } else {
         query.bindValue(":quality_score", member.qualityScore);
+    }
+    // match_score is nullable — same -1.0 sentinel as quality_score
+    if (member.matchScore < 0.0) {
+        query.bindValue(":match_score", QVariant(QMetaType(QMetaType::Double)));
+    } else {
+        query.bindValue(":match_score", member.matchScore);
     }
     query.bindValue(":is_fake_lossless", member.isFakeLossless ? 1 : 0);
     // Schema stores added_at as INTEGER (Unix timestamp)
@@ -646,6 +652,45 @@ bool TrackFingerprintDao::addCmrtMember(const CmrtMember& member) const {
                  << "groupId:" << member.groupId;
     }
     return true;
+}
+
+bool TrackFingerprintDao::updateMemberMatchScore(TrackId trackId, double matchScore) const {
+    if (sDebugTrackFingerprintDao) {
+        qDebug() << "TrackFingerprintDao -> [updateMemberMatchScore] -> entry"
+                 << "trackId:" << trackId
+                 << "matchScore:" << matchScore;
+    }
+
+    if (!m_database.isOpen() || !trackId.isValid()) {
+        qDebug() << "TrackFingerprintDao -> [updateMemberMatchScore] -> "
+                    "aborting: database not open or invalid trackId";
+        return false;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QString(
+            "UPDATE %1 SET match_score = :match_score WHERE track_id = :track_id")
+                    .arg(kCmrtMembersTableName));
+    // match_score is nullable -- same -1.0 sentinel as quality_score
+    if (matchScore < 0.0) {
+        query.bindValue(":match_score", QVariant(QMetaType(QMetaType::Double)));
+    } else {
+        query.bindValue(":match_score", matchScore);
+    }
+    query.bindValue(":track_id", trackId.toVariant());
+
+    if (!query.exec()) {
+        LOG_FAILED_QUERY(query) << "couldn't update match_score for track" << trackId;
+        return false;
+    }
+
+    const bool affected = query.numRowsAffected() > 0;
+    if (sDebugTrackFingerprintDao) {
+        qDebug() << "TrackFingerprintDao -> [updateMemberMatchScore] ->"
+                 << (affected ? "updated" : "no row found")
+                 << "trackId:" << trackId;
+    }
+    return affected;
 }
 
 bool TrackFingerprintDao::updateMemberOffset(TrackId trackId, double offsetFromCanonical) const {
@@ -740,7 +785,7 @@ QList<CmrtMember> TrackFingerprintDao::getCmrtMembersForGroup(int groupId) const
     QSqlQuery query(m_database);
     query.prepare(QString(
             "SELECT member_id, track_id, offset_from_canonical, quality_score, "
-            "is_fake_lossless, added_at, user_quality_rating "
+            "match_score, is_fake_lossless, added_at, user_quality_rating "
             "FROM %1 WHERE group_id=:group_id")
                     .arg(kCmrtMembersTableName));
     query.bindValue(":group_id", groupId);
@@ -763,6 +808,10 @@ QList<CmrtMember> TrackFingerprintDao::getCmrtMembersForGroup(int groupId) const
         // quality_score is nullable
         QVariant qualityVar = query.value(record.indexOf("quality_score"));
         member.qualityScore = qualityVar.isNull() ? -1.0 : qualityVar.toDouble();
+
+        // match_score is nullable, same sentinel as quality_score
+        QVariant matchScoreVar = query.value(record.indexOf("match_score"));
+        member.matchScore = matchScoreVar.isNull() ? -1.0 : matchScoreVar.toDouble();
 
         member.isFakeLossless = query.value(record.indexOf("is_fake_lossless")).toBool();
         // Schema stores added_at as INTEGER (Unix timestamp)
