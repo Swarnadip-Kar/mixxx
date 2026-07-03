@@ -126,12 +126,17 @@ void CmrtGroupingService::processTrack(
 }
 
 void CmrtGroupingService::assignToExistingGroup(
-        TrackId trackId, int groupId, double offsetSeconds, double qualityScore) {
+        TrackId trackId,
+        int groupId,
+        double offsetSeconds,
+        double qualityScore,
+        double matchScore) {
     CmrtMember member;
     member.groupId = groupId;
     member.trackId = trackId;
     member.offsetFromCanonical = offsetSeconds;
     member.qualityScore = qualityScore;
+    member.matchScore = matchScore;
     member.addedAt = QDateTime::currentDateTimeUtc();
     m_fingerprintDao.addCmrtMember(member);
     m_fingerprintDao.updateCmrtGroupTrackCount(groupId, +1);
@@ -219,10 +224,15 @@ void CmrtGroupingService::handleMatchedCandidate(TrackId newTrackId,
                 candidate.canonicalTrackId,
                 newTrackId,
                 offsetSeconds,
-                newTrackQualityScore);
+                newTrackQualityScore,
+                matchResult.score);
     } else {
         assignToExistingGroup(
-                newTrackId, candidate.cmrtGroupId, offsetSeconds, newTrackQualityScore);
+                newTrackId,
+                candidate.cmrtGroupId,
+                offsetSeconds,
+                newTrackQualityScore,
+                matchResult.score);
     }
 }
 
@@ -230,7 +240,8 @@ void CmrtGroupingService::replaceCanonical(int groupId,
         TrackId oldCanonicalId,
         TrackId newCanonicalId,
         double offsetOfNewFromOld,
-        double newCanonicalQualityScore) {
+        double newCanonicalQualityScore,
+        double matchScoreOfNewFromOld) {
     if (sDebugCmrtGroupingService) {
         qDebug() << "CmrtGroupingService -> [replaceCanonical] ->"
                  << "group:" << groupId << "old:" << oldCanonicalId
@@ -269,6 +280,7 @@ void CmrtGroupingService::replaceCanonical(int groupId,
     //    going the other direction in handleMatchedCandidate() -- no second
     //    FingerprintMatcher pass needed for this one.
     m_fingerprintDao.updateMemberOffset(oldCanonicalId, -offsetOfNewFromOld);
+    m_fingerprintDao.updateMemberMatchScore(oldCanonicalId, matchScoreOfNewFromOld);
     if (auto pOldMeta = m_fingerprintDao.getFingerprintMetadata(oldCanonicalId)) {
         pOldMeta->isCanonical = false;
         pOldMeta->cmrtOffsetSeconds = -offsetOfNewFromOld;
@@ -293,6 +305,7 @@ void CmrtGroupingService::replaceCanonical(int groupId,
                 matchResult.offsetItems * FingerprintMatcher::kItemDurationSeconds;
 
         m_fingerprintDao.updateMemberOffset(member.trackId, offsetSeconds);
+        m_fingerprintDao.updateMemberMatchScore(member.trackId, matchResult.score);
         if (auto pMemberMeta = m_fingerprintDao.getFingerprintMetadata(member.trackId)) {
             pMemberMeta->cmrtOffsetSeconds = offsetSeconds;
             m_fingerprintDao.saveFingerprintMetadata(*pMemberMeta);
