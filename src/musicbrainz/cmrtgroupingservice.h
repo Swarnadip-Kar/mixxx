@@ -26,7 +26,8 @@ class CmrtGroupingService {
     void assignToExistingGroup(TrackId trackId,
             int groupId,
             double offsetSeconds,
-            double qualityScore);
+            double qualityScore,
+            double matchScore);
 
     void createNewGroup(TrackId trackId, const FingerprintMetadata& fpRow, double qualityScore);
 
@@ -39,7 +40,8 @@ class CmrtGroupingService {
             TrackId oldCanonicalId,
             TrackId newCanonicalId,
             double offsetOfNewFromOld,
-            double newCanonicalQualityScore);
+            double newCanonicalQualityScore,
+            double matchScoreOfNewFromOld);
 
     TrackFingerprintDao& m_fingerprintDao; // not owned; lives on worker thread
     UserSettingsPointer m_pConfig;
