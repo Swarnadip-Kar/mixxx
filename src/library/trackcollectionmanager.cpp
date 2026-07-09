@@ -84,6 +84,18 @@ TrackCollectionManager::TrackCollectionManager(
                 &TrackDAO::updateAcoustIdResult,
                 Qt::QueuedConnection);
 
+        connect(m_pAcoustIdWorker.get(),
+                &mixxx::AcoustIdWorker::cmrtDataChanged,
+                this,
+                &TrackCollectionManager::cmrtDataChanged,
+                Qt::QueuedConnection);
+
+        connect(m_pAcoustIdWorker.get(),
+                &mixxx::AcoustIdWorker::queueDrained,
+                this,
+                &TrackCollectionManager::acoustIdQueueDrained,
+                Qt::QueuedConnection);
+
         m_pAcoustIdWorker->start(QThread::LowPriority);
     }
 
