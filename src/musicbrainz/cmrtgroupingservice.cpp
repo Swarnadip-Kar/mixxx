@@ -348,7 +348,7 @@ void CmrtGroupingService::replaceCanonical(int groupId,
         }
         const QVector<quint32> memberFp =
                 chromaBytesToVector(m_fingerprintDao.loadChromaFile(member.trackId));
-        const auto matchResult = FingerprintMatcher::compare(newCanonicalFp, memberFp);
+        const auto matchResult = FingerprintMatcher::compare(memberFp, newCanonicalFp);
         const double offsetSeconds =
                 matchResult.offsetItems * FingerprintMatcher::kItemDurationSeconds;
 
