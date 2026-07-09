@@ -1789,7 +1789,7 @@ bool TrackFingerprintDao::clearFingerprintData(TrackId trackId) const {
                     const QVector<quint32> memberFp =
                             chromaBytesToVector(loadChromaFile(member.trackId));
                     const auto matchResult =
-                            mixxx::FingerprintMatcher::compare(newCanonicalFp, memberFp);
+                            mixxx::FingerprintMatcher::compare(memberFp, newCanonicalFp);
                     const double offsetSeconds = matchResult.offsetItems *
                             mixxx::FingerprintMatcher::kItemDurationSeconds;
 
